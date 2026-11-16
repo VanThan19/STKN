@@ -5,6 +5,7 @@ import {
   calculateMacroTargets,
   buildItemsFromTemplate,
   applyDayItemsToRange,
+  applyAiNutritionPlan,
   computeDayTotals,
   evaluateNutritionBalance,
   recommendFoods,
@@ -93,5 +94,26 @@ describe('nutrition domain logic (international standard)', () => {
     const summary = weeklyNutritionSummary(logs, [], '2026-11-16', 7)
     expect(summary.loggedDays).toBe(2)
     expect(summary.avgKcal).toBe(Math.round((465 + 540) / 2))
+  })
+
+  it('applies AI-generated nutritionPlan to profile, 7-day logs, and activates reminders', () => {
+    const s = {}
+    const aiPlan = {
+      goal: 'cut',
+      targetCalories: 1850,
+      targetProtein: 160,
+      targetCarbs: 175,
+      targetFat: 55,
+      meals: [
+        { slot: 'breakfast', name: 'Oats & Whey', servingLabel: '1 bowl', servings: 1, kcal: 420, protein: 35, carbs: 50, fat: 8, fiber: 5 },
+        { slot: 'lunch', name: 'Chicken Breast & Rice', servingLabel: '1 plate', servings: 1, kcal: 550, protein: 50, carbs: 65, fat: 9, fiber: 4 }
+      ]
+    }
+    expect(applyAiNutritionPlan(s, aiPlan, { forWholeWeek: true, startIso: '2026-11-16' })).toBe(true)
+    expect(s.nutrition.profile.goal).toBe('cut')
+    expect(s.nutrition.profile.targetCalories).toBe(1850)
+    expect(s.nutrition.schedule.confirmed).toBe(true)
+    expect(Object.keys(s.nutrition.logs).length).toBe(7)
+    expect(s.nutrition.logs['2026-11-16'].items.length).toBe(2)
   })
 })

@@ -1,30 +1,11 @@
-import { useEffect, useState } from 'react'
 import { MUSCLES, INERT, MUSCLE_NAME, levelsOf } from '../lib/muscles.js'
+import BODY_PATHS from '../lib/body-paths.js'
 import { t } from '../lib/i18n.js'
 
 // Front and back views of a body, each muscle shaded by how hard it was worked.
 //
 // The five shade steps are the same ones the activity heatmap uses (.hm-c.l0…l4), so
 // "more accent = more training" means one thing everywhere in the app rather than two.
-//
-// The geometry is ~90 KB and only some screens show a map, so it is fetched on first
-// render instead of riding along in the main bundle. Until it lands the component
-// renders nothing but keeps its height, so nothing below it jumps on arrival.
-
-let CACHE = null                                  // shared across every mounted map
-let PENDING = null
-
-function useBodyPaths() {
-  const [paths, setPaths] = useState(CACHE)
-  useEffect(() => {
-    if (CACHE) return
-    let alive = true
-    PENDING = PENDING || import('../lib/body-paths.js').then(m => (CACHE = m.default))
-    PENDING.then(p => { if (alive) setPaths(p) }).catch(() => {})
-    return () => { alive = false }
-  }, [])
-  return paths
-}
 
 function View({ view, levels, onMuscle, selected }) {
   const activate = (event, slug) => {
@@ -33,7 +14,7 @@ function View({ view, levels, onMuscle, selected }) {
     onMuscle(slug)
   }
   return (
-    <svg className="bm-v" viewBox={view.vb} role={onMuscle ? 'group' : 'img'}>
+    <svg className="bm-v" viewBox={view.vb} width="100%" role={onMuscle ? 'group' : 'img'}>
       {INERT.map(slug => (view.p[slug] || []).map((d, i) =>
         <path key={slug + i} className="bm-sil" d={d} />))}
       {MUSCLES.map(slug => (view.p[slug] || []).map((d, i) =>
@@ -63,9 +44,8 @@ function View({ view, levels, onMuscle, selected }) {
  * hands over ready-made steps instead (the live session map, lib/muscles.js sessionLevels).
  */
 export default function BodyMap({ load = {}, thresholds, levels: given, body = 'male', onMuscle, selected, className = '' }) {
-  const paths = useBodyPaths()
   const levels = given || levelsOf(load, thresholds)
-  const g = paths && (paths[body] || paths.male)
+  const g = BODY_PATHS && (BODY_PATHS[body] || BODY_PATHS.male)
   return (
     <div className={'bodymap ' + className}>
       {g ? <>

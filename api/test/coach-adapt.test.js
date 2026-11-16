@@ -230,3 +230,28 @@ test('the system prompt stays a prompt: every task under 20k characters', async 
     assert.ok(buildPromptParts(kind, {}).system.length < 20000, kind);
   }
 });
+
+test('context & payload: bounded 7-day nutrition context is attached when present', () => {
+  const pWithout = payloadLib.build(S, { handle: H, kind: 'ask', note: 'How is my diet?', now: NOW });
+  assert.equal(pWithout.nutrition, undefined);
+
+  const SWithNut = {
+    ...S,
+    nutrition: {
+      profile: { goal: 'cut', activityLevel: 'moderate', allergies: ['dairy', 'fish', 'bad<script>'] },
+      schedule: { confirmed: true },
+      logs: {
+        [day(0)]: { waterMl: 2500, items: [{ kcal: 1850, protein: 160, carbs: 170, fat: 55 }] },
+        [day(1)]: { waterMl: 2300, items: [{ kcal: 1750, protein: 150, carbs: 160, fat: 50 }] }
+      }
+    }
+  };
+  const pWith = payloadLib.build(SWithNut, { handle: H, kind: 'ask', note: 'How is my diet?', now: NOW });
+  assert.ok(pWith.nutrition);
+  assert.equal(pWith.nutrition.goal, 'cut');
+  assert.deepEqual(pWith.nutrition.allergies, ['dairy', 'fish']);
+  assert.equal(pWith.nutrition.scheduleConfirmed, true);
+  assert.equal(pWith.nutrition.loggedDays7d, 2);
+  assert.equal(pWith.nutrition.avg7d.kcal, 1800);
+  assert.equal(pWith.nutrition.avg7d.protein, 155);
+});

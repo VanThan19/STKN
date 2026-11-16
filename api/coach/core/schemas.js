@@ -114,7 +114,39 @@ export const DEBRIEF_SCHEMA = {
 // A question in the chat: one plain-text answer, nothing to apply.
 export const ASK_SCHEMA = {
   type: 'object',
-  properties: { coach_contract: { type: 'integer' }, answer: STR },
+  properties: {
+    coach_contract: { type: 'integer' },
+    answer: STR,
+    nutritionPlan: {
+      type: 'object',
+      properties: {
+        goal: STR,
+        targetCalories: { type: 'integer' },
+        targetProtein: { type: 'integer' },
+        targetCarbs: { type: 'integer' },
+        targetFat: { type: 'integer' },
+        meals: {
+          type: 'array',
+          maxItems: 16,
+          items: {
+            type: 'object',
+            properties: {
+              slot: STR,
+              name: STR,
+              servingLabel: STR,
+              servings: { type: 'number' },
+              kcal: { type: 'integer' },
+              protein: { type: 'number' },
+              carbs: { type: 'number' },
+              fat: { type: 'number' },
+              fiber: { type: 'number' }
+            },
+            required: ['slot', 'name', 'kcal', 'protein', 'carbs', 'fat']
+          }
+        }
+      }
+    }
+  },
   required: ['coach_contract', 'answer']
 };
 

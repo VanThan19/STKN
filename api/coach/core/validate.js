@@ -729,13 +729,66 @@ export const MAX_ANSWER_CHARS = 2000;
  * answer that tries to carry plan changes is refused, the way a debrief's is.
  * Returns { ok, proposal:{ answer } } | { ok:false, errors }.
  */
-export function validateAsk(data) {
+const NUT_SLOTS = new Set(['breakfast', 'lunch', 'dinner', 'snack']);
+const NUT_GOALS = new Set(['cut', 'gentle_cut', 'maintain', 'lean_bulk', 'bulk']);
+
+function cleanNutritionPlan(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  if (typeof raw.goal === 'string' && NUT_GOALS.has(raw.goal.trim())) out.goal = raw.goal.trim();
+  if (Number.isFinite(+raw.targetCalories) && +raw.targetCalories >= 1200 && +raw.targetCalories <= 6000) {
+    out.targetCalories = Math.round(+raw.targetCalories);
+  }
+  if (Number.isFinite(+raw.targetProtein) && +raw.targetProtein >= 30 && +raw.targetProtein <= 400) {
+    out.targetProtein = Math.round(+raw.targetProtein);
+  }
+  if (Number.isFinite(+raw.targetCarbs) && +raw.targetCarbs >= 30 && +raw.targetCarbs <= 800) {
+    out.targetCarbs = Math.round(+raw.targetCarbs);
+  }
+  if (Number.isFinite(+raw.targetFat) && +raw.targetFat >= 20 && +raw.targetFat <= 250) {
+    out.targetFat = Math.round(+raw.targetFat);
+  }
+  if (Array.isArray(raw.meals)) {
+    const meals = [];
+    for (const m of raw.meals.slice(0, 16)) {
+      if (!m || typeof m !== 'object') continue;
+      const slot = typeof m.slot === 'string' && NUT_SLOTS.has(m.slot.trim().toLowerCase()) ? m.slot.trim().toLowerCase() : 'snack';
+      const name = isStr(m.name) ? clampStr(m.name.trim(), 80) : '';
+      if (!name) continue;
+      meals.push({
+        slot,
+        name,
+        servingLabel: isStr(m.servingLabel) ? clampStr(m.servingLabel.trim(), 40) : '1 serving',
+        servings: Number.isFinite(+m.servings) ? Math.max(0.25, Math.min(10, Math.round(+m.servings * 100) / 100)) : 1,
+        kcal: Math.max(0, Math.min(3000, Math.round(+m.kcal || 0))),
+        protein: Math.max(0, Math.min(250, Math.round((+m.protein || 0) * 10) / 10)),
+        carbs: Math.max(0, Math.min(400, Math.round((+m.carbs || 0) * 10) / 10)),
+        fat: Math.max(0, Math.min(200, Math.round((+m.fat || 0) * 10) / 10)),
+        fiber: Math.max(0, Math.min(100, Math.round((+m.fiber || 0) * 10) / 10))
+      });
+    }
+    if (meals.length) out.meals = meals;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+const NUTRITION_QUESTION_RE = /\b(meal|meals|menu|diet|nutrition|macro|macros|calorie|calories|kcal|protein|carb|carbs|fat|eat|eating|food|foods|breakfast|lunch|dinner|snack|thực\s*đơn|dinh\s*dưỡng|bữa\s*ăn|bữa\s*sáng|bữa\s*trưa|bữa\s*tối|bữa\s*phụ|calo|đạm|tinh\s*bột|chất\s*béo|ăn\s*uống|ăn\s*gì|kiêng|tăng\s*cân|giảm\s*mỡ|giảm\s*cân|món\s*ăn)\b/i;
+
+export function validateAsk(data, question) {
   if (!data || typeof data !== 'object') return fail(['the answer was not an object']);
   const errors = [];
   if (Array.isArray(data.changes) && data.changes.length) errors.push('an answer carries no plan changes — drop "changes" and say it in "answer"');
   if (!isStr(data.answer) || !data.answer.trim()) errors.push('answer is required — reply to the question in plain text');
   if (errors.length) return fail(errors);
-  return { ok: true, proposal: { answer: clampStr(data.answer.trim(), MAX_ANSWER_CHARS) } };
+  const allowNutrition = typeof question !== 'string' || NUTRITION_QUESTION_RE.test(question);
+  const nutritionPlan = allowNutrition ? cleanNutritionPlan(data.nutritionPlan) : null;
+  return {
+    ok: true,
+    proposal: {
+      answer: clampStr(data.answer.trim(), MAX_ANSWER_CHARS),
+      ...(nutritionPlan ? { nutritionPlan } : {})
+    }
+  };
 }
 
 /* =============================== workout debriefs =============================== */

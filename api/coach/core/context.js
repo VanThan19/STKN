@@ -111,3 +111,70 @@ export function challengesOf(S, now) {
     .map(p => ({ id: p.id, n: fin(p.n), ...(p.u === 'kg' || p.u === 'lb' ? { u: p.u } : {}), ...(done.has(p.id) ? { done: true } : {}) }));
   return goals.length ? { month, goals } : null;
 }
+
+const NUT_GOALS = new Set(['cut', 'gentle_cut', 'maintain', 'lean_bulk', 'bulk']);
+const NUT_ACTIVITY = new Set(['sedentary', 'light', 'moderate', 'active', 'athlete']);
+const clampNum = (v, lo, hi) => {
+  const n = fin(v);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n * 10) / 10)) : 0;
+};
+
+/**
+ * Bounded 7-day nutrition context (Phase 2 AI Personal Trainer):
+ * Extracts goal, activity level, allergens, and 7-day average intake (kcal, protein, carbs, fat, waterMl).
+ * Returns null when the profile has no nutrition data so existing payloads stay byte-identical.
+ */
+export function nutritionOf(S, now) {
+  const nut = S?.nutrition;
+  if (!isMap(nut)) return null;
+  const prof = isMap(nut.profile) ? nut.profile : {};
+  const logs = isMap(nut.logs) ? nut.logs : {};
+  const end = Number.isFinite(now) ? now : Date.now();
+
+  let loggedDays = 0;
+  let sumKcal = 0, sumP = 0, sumC = 0, sumF = 0, sumWater = 0;
+  for (let i = 0; i < 7; i++) {
+    const dIso = iso(end - i * DAY);
+    const dayLog = logs[dIso];
+    if (!isMap(dayLog)) continue;
+    const items = list(dayLog.items);
+    const water = clampNum(dayLog.waterMl, 0, 15000);
+    if (!items.length && !water) continue;
+    loggedDays++;
+    sumWater += water;
+    for (const it of items.slice(0, 40)) {
+      if (!isMap(it)) continue;
+      sumKcal += clampNum(it.kcal, 0, 5000);
+      sumP += clampNum(it.protein, 0, 500);
+      sumC += clampNum(it.carbs, 0, 1000);
+      sumF += clampNum(it.fat, 0, 500);
+    }
+  }
+
+  const goal = NUT_GOALS.has(prof.goal) ? prof.goal : null;
+  const activityLevel = NUT_ACTIVITY.has(prof.activityLevel) ? prof.activityLevel : null;
+  const allergies = list(prof.allergies)
+    .filter(a => typeof a === 'string' && /^[a-z_]{2,24}$/.test(a))
+    .slice(0, 8);
+  const scheduleConfirmed = !!nut.schedule?.confirmed;
+
+  if (!loggedDays && !goal && !allergies.length && !scheduleConfirmed) return null;
+
+  const div = Math.max(1, loggedDays);
+  return {
+    ...(goal ? { goal } : {}),
+    ...(activityLevel ? { activityLevel } : {}),
+    ...(allergies.length ? { allergies } : {}),
+    scheduleConfirmed,
+    loggedDays7d: loggedDays,
+    ...(loggedDays ? {
+      avg7d: {
+        kcal: Math.round(sumKcal / div),
+        protein: Math.round((sumP / div) * 10) / 10,
+        carbs: Math.round((sumC / div) * 10) / 10,
+        fat: Math.round((sumF / div) * 10) / 10,
+        waterMl: Math.round(sumWater / div)
+      }
+    } : {})
+  };
+}

@@ -202,6 +202,68 @@ export function applyDayItemsToRange(logs = {}, sourceItems = [], startIso, days
 }
 
 /**
+ * Applies an AI-generated `nutritionPlan` proposal (macros + meal items) onto draft state `s`
+ * after the user approves it in CoachChat.
+ */
+export function applyAiNutritionPlan(s, nutritionPlan, { forWholeWeek = false, startIso, idGen = () => Math.random().toString(36).slice(2, 10) } = {}) {
+  if (!s || !nutritionPlan || typeof nutritionPlan !== 'object') return false
+  if (!s.nutrition) s.nutrition = emptyNutrition()
+  const now = Date.now()
+  const iso = startIso || new Date(now).toISOString().slice(0, 10)
+
+  // 1. Update nutrition profile & macro targets if proposed by AI
+  const curProf = { ...DEFAULT_NUTRITION_PROFILE, ...(s.nutrition.profile || {}) }
+  if (nutritionPlan.goal && GOAL_ADJUSTMENTS[nutritionPlan.goal] !== undefined) {
+    curProf.goal = nutritionPlan.goal
+  }
+  if (Number(nutritionPlan.targetCalories) >= 1200) {
+    curProf.customTargets = true
+    curProf.targetCalories = Math.round(Number(nutritionPlan.targetCalories))
+    if (Number(nutritionPlan.targetProtein) > 0) curProf.targetProtein = Math.round(Number(nutritionPlan.targetProtein))
+    if (Number(nutritionPlan.targetCarbs) > 0) curProf.targetCarbs = Math.round(Number(nutritionPlan.targetCarbs))
+    if (Number(nutritionPlan.targetFat) > 0) curProf.targetFat = Math.round(Number(nutritionPlan.targetFat))
+  }
+  curProf._ts = now
+  s.nutrition.profile = curProf
+
+  // 2. Build meal items from AI proposal
+  const rawMeals = Array.isArray(nutritionPlan.meals) ? nutritionPlan.meals : []
+  if (rawMeals.length > 0) {
+    const items = rawMeals.map(m => ({
+      id: idGen(),
+      slot: MEAL_SLOTS.includes(m.slot) ? m.slot : 'snack',
+      foodId: m.foodId || 'ai_' + idGen(),
+      name: String(m.name || 'AI Meal'),
+      servingLabel: String(m.servingLabel || '1 serving'),
+      servings: Number(m.servings) || 1,
+      kcal: Math.round(Number(m.kcal) || 0),
+      protein: round1(m.protein),
+      carbs: round1(m.carbs),
+      fat: round1(m.fat),
+      fiber: round1(m.fiber),
+      eaten: false
+    }))
+
+    if (!s.nutrition.logs) s.nutrition.logs = {}
+    if (forWholeWeek) {
+      s.nutrition.logs = applyDayItemsToRange(s.nutrition.logs, items, iso, 7, now, idGen)
+      s.nutrition.schedule = {
+        ...DEFAULT_MEAL_SCHEDULE,
+        ...(s.nutrition.schedule || {}),
+        confirmed: true,
+        confirmedAt: now,
+        remindersOn: true,
+        _ts: now
+      }
+    } else {
+      const curDay = s.nutrition.logs[iso] || { items: [], waterMl: 0 }
+      s.nutrition.logs[iso] = { ...curDay, items, _ts: now }
+    }
+  }
+  return true
+}
+
+/**
  * Computes daily and per-meal macro totals from a day's log entry (`S.nutrition.logs[iso]`).
  */
 export function computeDayTotals(dayLog, customFoods = []) {

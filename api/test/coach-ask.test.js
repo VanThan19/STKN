@@ -49,11 +49,28 @@ test('ask payload: the running session the phone sent is bounded like a logged o
   assert.equal(payloadLib.build(S, { handle: 'h'.repeat(16), kind: 'ask', note: 'x', today: 'nope' }).today, undefined);
 });
 
-test('validateAsk: one answer, no changes', () => {
+test('validateAsk: one answer, no changes, optional nutritionPlan sanitized', () => {
   assert.deepEqual(validateAsk({ coach_contract: 1, answer: '  Due minuti.  ' }), { ok: true, proposal: { answer: 'Due minuti.' } });
   assert.equal(validateAsk({ coach_contract: 1, answer: '' }).ok, false);
   assert.equal(validateAsk({ coach_contract: 1, answer: 'ok', changes: [{ type: 'sets' }] }).ok, false);
   assert.ok(SCHEMAS.ask.required.includes('answer'));
+
+  const withNut = validateAsk({
+    coach_contract: 1,
+    answer: 'Here is your cut menu.',
+    nutritionPlan: {
+      goal: 'cut',
+      targetCalories: 1800,
+      targetProtein: 160,
+      targetCarbs: 170,
+      targetFat: 50,
+      meals: [{ slot: 'breakfast', name: 'Oats & Whey', servingLabel: '1 bowl', servings: 1, kcal: 420, protein: 35, carbs: 50, fat: 8, fiber: 6 }]
+    }
+  });
+  assert.equal(withNut.ok, true);
+  assert.equal(withNut.proposal.nutritionPlan.goal, 'cut');
+  assert.equal(withNut.proposal.nutritionPlan.targetCalories, 1800);
+  assert.equal(withNut.proposal.nutritionPlan.meals.length, 1);
 });
 
 test('ask pipeline: the ask rules and schema reach the provider, and an answer comes back', async () => {
