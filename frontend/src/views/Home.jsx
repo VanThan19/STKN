@@ -29,6 +29,7 @@ import { SeasonDeco } from '../components/Seasonal.jsx'
 import { WrappedHomeCard } from '../components/WrappedEntry.jsx'
 import RecoveryHint from '../components/RecoveryHint.jsx'
 import { ChallengesCard } from '../components/Challenges.jsx'
+import HomeNutritionHub from '../components/HomeNutritionHub.jsx'
 import { isOn } from '../lib/modules.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -190,6 +191,9 @@ export default function Home() {
       </div>}
       <SeasonDeco spot="home-hero" />
     </div>
+
+    {/* Promotional Banner Carousel & Home Meal Notification Center */}
+    <HomeNutritionHub />
 
     {/* Monday: Your week; the 1st: Your month (lib/recap.js). Off in Settings → Look & Home. */}
     <RecapHomeCard S={S} />

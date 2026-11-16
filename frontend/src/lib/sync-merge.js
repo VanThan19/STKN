@@ -978,6 +978,27 @@ export function mergeStates(a0, b0, { prefer } = {}) {
       const other = sameJSON(out.coach, n.coach) ? o.coach : n.coach
       if (isMap(other)) out.coach = mergeCoach(out.coach, other)
     }
+    if (isMap(out.nutrition)) {
+      const other = sameJSON(out.nutrition, n.nutrition) ? o.nutrition : n.nutrition
+      if (isMap(other)) {
+        const lp = isMap(out.nutrition.profile) ? out.nutrition.profile : {}
+        const op = isMap(other.profile) ? other.profile : {}
+        const profile = (Number(op._ts) || 0) > (Number(lp._ts) || 0) ? clone(op) : clone(lp)
+        const ls = isMap(out.nutrition.schedule) ? out.nutrition.schedule : {}
+        const os = isMap(other.schedule) ? other.schedule : {}
+        const schedule = (Number(os._ts) || 0) > (Number(ls._ts) || 0) ? clone(os) : clone(ls)
+        const customFoods = unionById(out.nutrition.customFoods, other.customFoods).map(clone)
+        const lLogs = isMap(out.nutrition.logs) ? out.nutrition.logs : {}
+        const oLogs = isMap(other.logs) ? other.logs : {}
+        const logs = {}
+        for (const d of new Set([...Object.keys(lLogs), ...Object.keys(oLogs)])) {
+          const ld = lLogs[d], od = oLogs[d]
+          if (ld && od) logs[d] = clone((Number(od._ts) || 0) > (Number(ld._ts) || 0) ? od : ld)
+          else if (ld || od) logs[d] = clone(ld || od)
+        }
+        out.nutrition = { ...out.nutrition, profile, schedule, customFoods, logs }
+      }
+    }
   }
   // The advent calendar (lib/advent.js): a door opened on either device stays open, and so does a
   // ticked challenge, whichever copy changed the field last. A calendar of a later year wins.
