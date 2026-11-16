@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
+import { useUI } from '../store/useUI.js'
 import { effectiveRoutines, effectiveRoutineIds, nextTrainingDay, lastBW, setsDoneActive } from '../lib/history.js'
 import { streakInfo } from '../lib/streak.js'
 import { StreakFlame, StreakMeta, StreakParty } from '../components/Streak.jsx'
 import { fmtNum, fmtDate, todayISO, isoOf, weekStartOf, weekDayOffset, DAYS, DAYN } from '../lib/format.js'
 import { t, tn, dateLocale } from '../lib/i18n.js'
-import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, starterPlanSheet, bwDeltaColor, weighInsSheet } from '../sheets.jsx'
+import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, starterPlanSheet, loadStarterPlan, bwDeltaColor, weighInsSheet } from '../sheets.jsx'
+import { goalOnboardingSheet } from '../components/GoalOnboardingWizard.jsx'
+import { needsGoalOnboarding } from '../lib/starter-onboarding.js'
 import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import CardHead from '../components/CardHead.jsx'
@@ -29,6 +32,7 @@ import { SeasonDeco } from '../components/Seasonal.jsx'
 import { WrappedHomeCard } from '../components/WrappedEntry.jsx'
 import RecoveryHint from '../components/RecoveryHint.jsx'
 import { ChallengesCard } from '../components/Challenges.jsx'
+import HomeNutritionHub from '../components/HomeNutritionHub.jsx'
 import { isOn } from '../lib/modules.js'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
@@ -36,6 +40,18 @@ export default function Home() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const user = useStore(s => s.user)
+
+  useEffect(() => {
+    if (!user || !needsGoalOnboarding(S)) return
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('vf_goal_prompted')) return
+    const tm = setTimeout(() => {
+      const st = useStore.getState()
+      if (st.S.active || useUI.getState().sheets.length || !needsGoalOnboarding(st.S)) return
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('vf_goal_prompted', '1')
+      goalOnboardingSheet({ loadStarterPlanFn: loadStarterPlan, onComplete: () => nav('/plan') })
+    }, 350)
+    return () => clearTimeout(tm)
+  }, [user, S, nav])
   // The banner switched off and the sync stuck: a dot on the gear (Settings → Show connection status).
   const trouble = useConnectionTrouble()
   const [weekOffset, setWeekOffset] = useState(0)
@@ -191,6 +207,9 @@ export default function Home() {
       <SeasonDeco spot="home-hero" />
     </div>
 
+    {/* Promotional Banner Carousel & Home Meal Notification Center */}
+    <HomeNutritionHub />
+
     {/* Monday: Your week; the 1st: Your month (lib/recap.js). Off in Settings → Look & Home. */}
     <RecapHomeCard S={S} />
 
@@ -217,8 +236,9 @@ export default function Home() {
 
     {!S.routines.length && !S.active && (
       <div className="card">
-        <CardHead icon="calendar" title={t('Welcome!')} sub={t('Set up your weekly routine to get going, or grab a ready-made starter plan.')} />
-        <Button variant="primary" icon="clipboard" onClick={starterPlanSheet}>{t('Load starter plan')}</Button>
+        <CardHead icon="calendar" title={t('Welcome!')} sub={t('Set your goal and body metrics to generate a personalized workout & 7-day meal plan, or load a starter plan.')} />
+        <Button variant="primary" icon="sparkles" onClick={() => goalOnboardingSheet({ loadStarterPlanFn: loadStarterPlan, onComplete: () => nav('/plan') })}>{t('Set Goal & Body Metrics')}</Button>
+        <div style={{ height: 8 }} /><Button variant="tinted" icon="clipboard" onClick={starterPlanSheet}>{t('Load starter plan')}</Button>
         <div style={{ height: 8 }} /><Button onClick={() => nav('/plan')}>{t('Build my own plan')}</Button>
       </div>
     )}

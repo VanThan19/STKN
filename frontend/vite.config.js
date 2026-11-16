@@ -17,23 +17,37 @@ const apiOrigin = process.env.API_ORIGIN || 'http://localhost:8080'
 // Exercise media: served straight from catalogue/media in dev (see catalogueMedia below), or
 // proxied to a server of your choice with MEDIA_TARGET.
 const media = process.env.MEDIA_TARGET
-const catalogueMedia = {
-  name: 'opengym-catalogue-media',
-  configureServer(server) {
-    if (media) return
-    const dirs = { '/exercise-media/still/': ['still', '.webp'], '/exercise-media/clip/': ['clip', '.mp4'] }
-    const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '../catalogue/media')
-    server.middlewares.use((req, res, next) => {
-      const prefix = Object.keys(dirs).find(p => req.url.startsWith(p))
-      if (!prefix) return next()
-      const [dir, ext] = dirs[prefix]
-      const name = decodeURIComponent(req.url.slice(prefix.length).split('?')[0])
-      const file = join(root, dir, name)
-      if (!/^\d{4,5}\.(webp|mp4)$/.test(name) || !name.endsWith(ext) || !existsSync(file)) { res.statusCode = 404; return res.end() }
-      res.setHeader('Content-Type', ext === '.mp4' ? 'video/mp4' : 'image/webp')
-      res.end(readFileSync(file))
+function mountCatalogueMedia(server) {
+  if (server.httpServer) {
+    server.httpServer.on('connection', socket => {
+      socket.on('error', err => {
+        if (err && (err.code === 'ECONNRESET' || err.code === 'EPIPE')) return
+      })
+    })
+    server.httpServer.on('clientError', (err, socket) => {
+      if (err?.code === 'ECONNRESET' || !socket.writable) return
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n')
     })
   }
+  if (media) return
+  const dirs = { '/exercise-media/still/': ['still', '.webp'], '/exercise-media/clip/': ['clip', '.mp4'] }
+  const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '../catalogue/media')
+  server.middlewares.use((req, res, next) => {
+    req.socket?.on?.('error', () => {})
+    const prefix = Object.keys(dirs).find(p => req.url.startsWith(p))
+    if (!prefix) return next()
+    const [dir, ext] = dirs[prefix]
+    const name = decodeURIComponent(req.url.slice(prefix.length).split('?')[0])
+    const file = join(root, dir, name)
+    if (!/^\d{4,5}\.(webp|mp4)$/.test(name) || !name.endsWith(ext) || !existsSync(file)) { res.statusCode = 404; return res.end() }
+    res.setHeader('Content-Type', ext === '.mp4' ? 'video/mp4' : 'image/webp')
+    if (!res.writableEnded) res.end(readFileSync(file))
+  })
+}
+const catalogueMedia = {
+  name: 'opengym-catalogue-media',
+  configureServer: mountCatalogueMedia,
+  configurePreviewServer: mountCatalogueMedia,
 }
 
 // Optional web analytics (Umami). Injected only when BOTH vars are set at build time,
@@ -108,10 +122,24 @@ export default defineConfig({
   plugins: [react(), umami, flavor, swStamp, catalogueMedia],
   base: './',
   server: {
+    host: true,
+    allowedHosts: true,
     // The Coach's core (payload, validator, prompts, HTTP adapters) lives in ../api/coach/core
     // and is imported by the phone build. vite build and vitest already reach it; the dev
     // server needs to be told the workspace is wider than frontend/.
     fs: { allow: ['..'] },
+    proxy: {
+      '/api': { target: backend, changeOrigin: true, headers: { Origin: apiOrigin } },
+      ...(media ? {
+        '/exercise-media': { target: media, changeOrigin: true }
+      } : {})
+    }
+  },
+  preview: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+    allowedHosts: true,
     proxy: {
       '/api': { target: backend, changeOrigin: true, headers: { Origin: apiOrigin } },
       ...(media ? {

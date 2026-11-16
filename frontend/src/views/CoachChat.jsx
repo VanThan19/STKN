@@ -18,7 +18,8 @@ import { closeThenNav } from '../lib/nav.js'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { t, tn } from '../lib/i18n.js'
-import { fmtDate, fmtNum, DAYS, weekOrder, weekStartOf, isoOf } from '../lib/format.js'
+import { fmtDate, fmtNum, DAYS, weekOrder, weekStartOf, isoOf, todayISO, uid } from '../lib/format.js'
+import { applyAiNutritionPlan } from '../lib/nutrition.js'
 import { exLine } from '../lib/history.js'
 import { speedUnitOf } from '../lib/speed.js'
 import { DEMO } from '../lib/demo.js'
@@ -63,15 +64,27 @@ export default function CoachChat() {
 
   const gate = useCoachGate()
   const ok = gate.ok
+  const guestBlocked = storeReady && gate.known && !ok && !user && !DEMO
   const ready = ok && hasConsent(S) && !!S.coach?.profile
+
+  // If the user previously picked a minimal module preset during the first-launch tour that turned
+  // Extras/Coach off, opening the AI Coach tab re-enables the module automatically.
+  useEffect(() => {
+    if (!storeReady || !ok || S?.modules?.coach !== false) return
+    update(s => {
+      s.modules = { ...(s.modules && typeof s.modules === 'object' ? s.modules : {}), coach: true }
+    })
+  }, [storeReady, ok, S?.modules?.coach])
+
   // Not before the store has loaded: a cold start straight on #/coach would otherwise read an
   // empty state, decide there is no consent, and bounce a consenting user into the intake. Nor
   // before the server said for this session whether it has a Coach (lib/use-coach-gate.js).
   useEffect(() => {
     if (!storeReady || !gate.known) return
-    if (!ok) nav('/home', { replace: true })
-    else if (!ready) nav('/coach/intake', { replace: true })
-  }, [storeReady, gate.known, ok, ready])
+    if (!ok) {
+      if (user || DEMO) nav('/home', { replace: true })
+    } else if (!ready) nav('/coach/intake', { replace: true })
+  }, [storeReady, gate.known, ok, ready, user])
 
   // A job that ends is either a proposal, "nothing to change", or a failure. The server tells
   // the client none of that directly — the job simply stops appearing — so the transition is
@@ -113,12 +126,45 @@ export default function CoachChat() {
     if (!pending || pending.kind !== 'ask' || job) return
     update(s => {
       if ((s.coach?.chat || []).some(m => m.pid === pending.id)) return
-      appendChat(s, { role: 'coach', kind: 'text', text: String(pending.answer || ''), pid: pending.id })
+      appendChat(s, {
+        role: 'coach',
+        kind: 'text',
+        text: String(pending.answer || ''),
+        pid: pending.id,
+        ...(pending.nutritionPlan ? { nutritionPlan: pending.nutritionPlan } : {})
+      })
     })
     resolvePending({ accepted: ['ask'] }).catch(() => {}).finally(() => refresh())
   }, [pending?.id, !!job])
 
   useEffect(() => { if (typeof endRef.current?.scrollIntoView === 'function') endRef.current.scrollIntoView({ block: 'end' }) }, [S.coach?.chat?.length, !!job, !!pending])
+
+  if (guestBlocked) {
+    return <div className="narrow chat">
+      <div className="chat-hdr">
+        <button className="iconbtn" data-back="/home" onClick={() => nav('/home')} aria-label={t('Back')}><Icon name="chevronLeft" /></button>
+        <div className="chat-av"><Icon name="sparkles" /></div>
+        <div className="grow">
+          <h1>{t('AI Coach')}</h1>
+          <div className="chat-st">{t('Sign in required')}</div>
+        </div>
+      </div>
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3 style={{ marginTop: 0 }}>{t('Sign in to use AI Coach')}</h3>
+        <div className="small muted" style={{ lineHeight: 1.5, marginBottom: 14 }}>
+          {t('You are currently using Guest mode. Sign in with your account so AI Coach can build workout plans and customize your weekly menu.')}
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <Button variant="primary" icon="person" onClick={() => nav('/settings/account')}>
+            {t('Sign in')}
+          </Button>
+          <Button variant="ghost" onClick={() => nav('/home')}>
+            {t('Back')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  }
 
   if (!ready) return null
   const coach = S.coach || emptyCoach()
@@ -134,7 +180,10 @@ export default function CoachChat() {
       // answer that there is no workout to look at, which is how people got stuck. Anything else
       // is a question, answered in words (`ask`): "how long should I rest?" is not a request to
       // review the whole plan. A review is the chip and the menu's, as it always was.
+      const wantsPlanChange = /(lịch\s*tập|giáo\s*án|xây\s*dựng\s*lại|tạo\s*lại|đổi\s*lịch|sửa\s*lịch|dời\s*buổi|đổi\s*bài|thay\s*bài|bỏ\s*bài|thêm\s*bài|thứ\s*[2-7]|chủ\s*nhật|\bt[2-7]\b|bận|chấn\s*thương|đau\s*(đầu\s*gối|gối|lưng|vai|cổ\s*tay|khuỷu|hông|cổ)|rebuild|reschedule|change\s+(my\s+)?(plan|schedule|routine|split|workout)|swap\s+out|busy\s+on\s+(mon|tue|wed|thu|fri|sat|sun))/i.test(msg)
+      const wantsNutrition = /(thực\s*đơn|bữa\s*ăn|dinh\s*dưỡng|calo|macro|meal\s*plan|diet|menu)/i.test(msg)
       if (pending?.kind === 'create' || !(S.routines || []).length) await refinePlan(msg)
+      else if (wantsPlanChange && !wantsNutrition) await requestReview(msg)
       else await askCoach(msg)
       update(s => appendChat(s, { role: 'user', kind: 'text', text: msg }))
       setText('')
@@ -249,6 +298,8 @@ export default function CoachChat() {
         <button className="qchip" onClick={askReview}><Icon name="sparkles" />{t('Review my training')}</button>
         {!!lastWorkout && <button className="qchip" onClick={askDebrief}><Icon name="checkCircle" />{t('Last workout')}</button>}
         {!!(S.routines || []).length && <button className="qchip" onClick={pickRoutine}><Icon name="wrench" />{t('Improve a routine')}</button>}
+        <button className="qchip" onClick={() => ask(() => askCoach(t('Please adjust my nutrition macros and build a full 4-meal daily menu (Breakfast, Lunch, Snack, Dinner) based on my goal and training schedule.')), t('Please adjust my nutrition macros and build a full 4-meal daily menu (Breakfast, Lunch, Snack, Dinner) based on my goal and training schedule.'))}><Icon name="flame" />{t('AI Meal Plan')}</button>
+        <button className="qchip" onClick={() => ask(() => askCoach(t('Review my nutrition, macros and how they match my training this week.')), t('Review my nutrition, macros and how they match my training this week.'))}><Icon name="sparkles" />{t('Nutrition & Macros')}</button>
         {community && <button className="qchip" onClick={showCohort}><Icon name="person" />{t('Compare')}</button>}
       </div>}
       <div className={'composer-in' + (expanded ? ' tall' : '')}>
@@ -288,9 +339,74 @@ function Message({ m, S, profile, openSheet }) {
     </div>
   }
   if (m.kind === 'reverted' || m.kind === 'nochange' || m.kind === 'error' || m.kind === 'text') {
-    return <Bubble role={m.role} kind={m.kind} at={m.at}>{m.text}</Bubble>
+    return <Bubble role={m.role} kind={m.kind} at={m.at}>
+      {m.text}
+      {m.nutritionPlan && <AiNutritionPlanCard plan={m.nutritionPlan} />}
+    </Bubble>
   }
   return null
+}
+
+function AiNutritionPlanCard({ plan }) {
+  const update = useStore(s => s.update)
+  const toast = useUI(s => s.toast)
+  const nav = useNavigate()
+
+  const applyPlan = forWholeWeek => {
+    update(s => {
+      applyAiNutritionPlan(s, plan, { forWholeWeek, startIso: todayISO(), idGen: uid })
+    })
+    toast(forWholeWeek ? t('Applied AI Meal Plan for 7 days & enabled reminders!') : t('Applied AI Meal Plan for today!'))
+    nav('/nutrition')
+  }
+
+  return (
+    <div
+      data-testid="ai-nutrition-proposal-card"
+      style={{
+        marginTop: 10,
+        padding: 12,
+        borderRadius: 10,
+        background: 'var(--surface-2)',
+        border: '1px solid var(--surface-3)'
+      }}
+    >
+      <div style={{ fontWeight: 700, marginBottom: 4, color: 'var(--acc-ink)' }}>
+        🍽️ {t('AI Nutrition & Meal Plan Proposal')}
+      </div>
+      {plan.targetCalories && (
+        <div className="small muted" style={{ marginBottom: 8 }}>
+          {plan.goal ? `${t('Goal')}: ${plan.goal} · ` : ''}
+          <strong>{plan.targetCalories} kcal</strong>
+          {plan.targetProtein ? ` · P ${plan.targetProtein}g` : ''}
+          {plan.targetCarbs ? ` · C ${plan.targetCarbs}g` : ''}
+          {plan.targetFat ? ` · F ${plan.targetFat}g` : ''}
+        </div>
+      )}
+      {Array.isArray(plan.meals) && plan.meals.length > 0 && (
+        <div style={{ display: 'grid', gap: 4, marginBottom: 10 }}>
+          {plan.meals.map((it, idx) => (
+            <div key={idx} className="small" style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <span>
+                <strong style={{ textTransform: 'capitalize' }}>{t(it.slot)}:</strong> {it.name} ({it.servingLabel})
+              </span>
+              <span className="muted" style={{ whiteSpace: 'nowrap' }}>
+                {it.kcal} kcal · {it.protein}g P
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <Button size="sm" variant="tinted" onClick={() => applyPlan(false)}>
+          {t('Apply for Today')}
+        </Button>
+        <Button size="sm" variant="primary" icon="checkCircle" onClick={() => applyPlan(true)}>
+          {t('Apply 7 Days & Reminders')}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 const stamp = at => {

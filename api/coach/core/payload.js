@@ -12,7 +12,7 @@
  */
 import { glyphStr } from './glyphs.js';
 import { LIBRARY, LIB_BY_ID, libraryHas, libraryName, librarySlice, swapSlice, isStretch, MAX_LIBRARY, ownsNoDumbbells } from './library.js';
-import { muscleLoad, gymOf, challengesOf } from './context.js';
+import { muscleLoad, gymOf, challengesOf, nutritionOf } from './context.js';
 
 export const CONTRACT = 1;
 // Bounds from FR-22. A review reads a training block, not a training career: more history
@@ -636,6 +636,8 @@ export function build(S, opts = {}) {
     if (gym) p.gym = gym;
     const challenges = opts.kind === 'review' || opts.kind === 'ask' ? challengesOf(S, now) : null;
     if (challenges) p.challenges = challenges;
+    const nutrition = nutritionOf(S, now);
+    if (nutrition) p.nutrition = nutrition;
   }
   // Someone who set up a home gym under Settings → Equipment and left the Coach's own equipment
   // question empty was handed the whole catalogue, leverage machines and all. The profile they

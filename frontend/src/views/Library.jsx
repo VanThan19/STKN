@@ -3,19 +3,41 @@ import { useUI } from '../store/useUI.js'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { EXDB, BODYPARTS, allExercises, equipmentOf, byCategory, searchExercises, similarExercises } from '../lib/exercises.js'
-import { MUSCLE_NAME } from '../lib/muscles.js'
+import { MUSCLES, MUSCLE_NAME, musclesOf } from '../lib/muscles.js'
+import {
+  QUICK_SCENES,
+  exerciseMetaOf,
+  isEssentialForMuscle,
+  muscleCountsOf,
+} from '../lib/curated-exercises.js'
 import { activeProfile, exAvailable } from '../lib/equipment.js'
 import { bestWeightFor } from '../lib/history.js'
 import { fmtNum, exCount } from '../lib/format.js'
 import { t, tn, exerciseNameFor, exerciseNameClass } from '../lib/i18n.js'
+import BodyMap from '../components/BodyMap.jsx'
+import MuscleComboCard from '../components/MuscleComboCard.jsx'
 import { Thumb } from '../components/Media.jsx'
 import { exerciseDetailSheet, addToRoutineSheet, customExSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import ExerciseViewToggle from '../components/ExerciseViewToggle.jsx'
-import { Button } from '../components/ui.jsx'
+import { Button, Segmented } from '../components/ui.jsx'
 import { tappable, useRevealActiveChip } from '../lib/use-sheet-keyboard.js'
 import { useAutoMore } from '../lib/use-auto-more.js'
 import { isFav, sortFavouritesFirst, sortYoursFirst, usageOf } from '../lib/favourites.js'
+
+function metaBadgeText(meta) {
+  const diff = meta.difficulty === 'beginner'
+    ? '🟢 ' + t('Beginner')
+    : meta.difficulty === 'advanced'
+      ? '🔴 ' + t('Advanced')
+      : '🟡 ' + t('Intermediate')
+  const mech = meta.mechanic === 'compound'
+    ? t('Compound')
+    : meta.mechanic === 'mobility'
+      ? t('Mobility')
+      : t('Isolation')
+  return (meta.isEssential ? '⭐ ' + t('Essential') + ' · ' : '') + diff + ' · ' + mech
+}
 
 export default function Library() {
   const nav = useNavigate()
@@ -24,6 +46,10 @@ export default function Library() {
   const [bp, setBp] = useState('')
   const [eq, setEq] = useState('')
   const [cat, setCat] = useState('')
+  const [selectedMuscle, setSelectedMuscle] = useState(null)
+  const [tier, setTier] = useState('all')       // 'all' | 'essential' | 'compound'
+  const [scene, setScene] = useState('all')
+  const [mapOpen, setMapOpen] = useState(true)
   const [showAll, setShowAll] = useState(false)   // ignore the active equipment profile for this session
   const [shown, setShown] = useState(40)
   const bpStrip = useRef(null)
@@ -32,7 +58,36 @@ export default function Library() {
   // Your own exercises, counted the way the list below shows them (allExercises puts every
   // custom entry in front of the catalogue; deleting one removes it from customEx outright).
   const ownCount = (S.customEx || []).filter(c => c && c.id).length
-  const inPart = searchExercises(allExercises(S).filter(e => !bp || e.bp === bp), q)
+
+  const catalogAll = useMemo(() => allExercises(S), [S.customEx, S.exMerged])
+  const musclePool = useMemo(
+    () => (profile && !showAll) ? catalogAll.filter(e => exAvailable(S, e)) : catalogAll,
+    [catalogAll, profile, showAll, S],
+  )
+  const muscleCounts = useMemo(
+    () => Object.fromEntries(MUSCLES.map(m => [m, muscleCountsOf(musclePool, m)])),
+    [musclePool],
+  )
+
+  const sceneObj = QUICK_SCENES.find(sc => sc.id === scene) || QUICK_SCENES[0]
+  const matchesGuide = e => {
+    if (!sceneObj.match(e)) return false
+    if (tier === 'essential') return isEssentialForMuscle(e, selectedMuscle)
+    if (tier === 'compound') return exerciseMetaOf(e).mechanic === 'compound'
+    return true
+  }
+
+  const pickMuscle = m => {
+    setSelectedMuscle(cur => (cur === m ? null : m))
+    setShown(40)
+  }
+
+  const byMuscleAndPart = catalogAll.filter(e => {
+    if (bp && e.bp !== bp) return false
+    if (selectedMuscle && !musclesOf(e)[selectedMuscle]) return false
+    return matchesGuide(e)
+  })
+  const inPart = searchExercises(byMuscleAndPart, q)
   // Kind of exercise (strength, stretching, cardio...), the same fallback as equipment below: a
   // choice the search or body part has narrowed away is ignored for now, never a dead end.
   const { opts: catOpts, on: catOn, list: base } = byCategory(inPart, cat)
@@ -44,7 +99,19 @@ export default function Library() {
   // while searching, the exercises you have logged or planned follow right after them.
   const narrowedList = eqOn ? eqFiltered.filter(e => e.eq === eqOn) : eqFiltered
   const usage = useMemo(() => (q.trim() ? usageOf(S) : null), [q, S.routines, S.workouts])
-  const f = usage ? sortYoursFirst(narrowedList, S, usage) : sortFavouritesFirst(narrowedList, S)
+  const f = useMemo(() => {
+    const ordered = usage ? sortYoursFirst(narrowedList, S, usage) : sortFavouritesFirst(narrowedList, S)
+    if (selectedMuscle && tier === 'essential') {
+      return [...ordered].sort((a, b) => {
+        const fa = isFav(S, a.id) ? 0 : 1
+        const fb = isFav(S, b.id) ? 0 : 1
+        if (fa !== fb) return fa - fb
+        return (musclesOf(b)[selectedMuscle] || 0) - (musclesOf(a)[selectedMuscle] || 0)
+      })
+    }
+    return ordered
+  }, [narrowedList, S, usage, selectedMuscle, tier])
+
   useRevealActiveChip(bpStrip, bp)
   // Type and equipment live in the Filters sheet (P7). It works out its own options from the same
   // search and body part, so a choice it offers is never a dead end either.
@@ -57,23 +124,27 @@ export default function Library() {
   }
   const openFilters = () => useUI.getState().openSheet(close => <LibraryFilters close={close} cat={catOn} eq={eqOn} filtersFor={filtersFor}
     onChange={(c, e) => { setCat(c); setEq(e); setShown(40) }} />)
-  // A live count at the end of the search field while a search or filter narrows the list
-  // (idea and first version: GitLab !31) — how many are left, before scrolling to find out.
-  const narrowed = !!(q.trim() || bp || eqOn || catOn)
+  // A live count at the end of the search field while a search or filter narrows the list.
+  const narrowed = !!(q.trim() || bp || eqOn || catOn || selectedMuscle || tier !== 'all' || scene !== 'all')
   // Close but not exact (a typo too many, most of the words, a similar name), under the results
   // once they are all on screen, so a search almost never ends on "No match".
-  // Worked out a beat behind the typing (useDeferredValue): the list itself never waits for it.
   const qLate = useDeferredValue(q)
   const similar = q.trim() && qLate === q && f.length <= shown
-    ? similarExercises(allExercises(S).filter(e => (!bp || e.bp === bp) && (!profile || showAll || exAvailable(S, e))), q, f, f.length ? 12 : 30)
+    ? similarExercises(catalogAll.filter(e => (!bp || e.bp === bp) && (!profile || showAll || exAvailable(S, e))), q, f, f.length ? 12 : 30)
     : []
+
   const row = e => {
     const best = bestWeightFor(S, e.id)
+    const meta = exerciseMetaOf(e)
     // The row is not a button: its name is, stretched over the row (.tap-main), with Add to my plan
     // a sibling above it (card dismiss pass), so neither tap can land on the other.
     return <div key={e.id} className="item tap-host">
       <Thumb ex={e} />
-      <button type="button" className="grow item-open tap-main" aria-haspopup="dialog" onClick={() => exerciseDetailSheet(e)}><span className={`tt ${exerciseNameClass(e)}`}>{isFav(S, e.id) && <Icon name="starFill" className="fav-star" />}{exerciseNameFor(e)}</span><span className="ss capitalize">{t(MUSCLE_NAME[e.tg] || e.tg || e.bp)} · {t(e.eq)}</span></button>
+      <button type="button" className="grow item-open tap-main" aria-haspopup="dialog" onClick={() => exerciseDetailSheet(e)}>
+        <span className={`tt ${exerciseNameClass(e)}`}>{isFav(S, e.id) && <Icon name="starFill" className="fav-star" />}{exerciseNameFor(e)}</span>
+        <span className="ss capitalize">{t(MUSCLE_NAME[e.tg] || e.tg || e.bp)} · {t(e.eq)}</span>
+        <span className="ex-meta-badges" style={{ display: 'block', marginTop: 2, fontSize: 'var(--fs-caption)', opacity: 0.72 }}>{metaBadgeText(meta)}</span>
+      </button>
       {best > 0 && <span className="tag acc">{fmtNum(best)}</span>}
       {/* a quiet trailing button (P7): the accent stays on the one action of the screen */}
       <button type="button" className="iconbtn lib-add" aria-label={t('Add to my plan')} title={t('Add to my plan')}
@@ -88,6 +159,103 @@ export default function Library() {
         ? tn('{1} animated exercises + 1 of your own', '{1} animated exercises + {0} of your own', ownCount, EXDB.length)
         : t('{0} exercises with animations', EXDB.length)}</div>
     </div>
+
+    {/* Visual Muscle Map & Beginner Guide Card — keeps the BodyMap centerpiece right inside Exercises */}
+    <div className="card lib-explorer-card" style={{ marginBottom: 12 }}>
+      <div className="row between" style={{ marginBottom: mapOpen ? 8 : 0, gap: 8, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 'var(--fs-body)' }}>{t('Explore muscles')}</div>
+          <div className="small dim">
+            {selectedMuscle
+              ? `${t(MUSCLE_NAME[selectedMuscle])} · ${muscleCounts[selectedMuscle]?.essential || 0} ${t('Essential').toLowerCase()} · ${muscleCounts[selectedMuscle]?.primary || 0} ${t('Primary target').toLowerCase()}`
+              : t('Choose a muscle to see exercises that train it.')}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+          {selectedMuscle && <Button size="sm" variant="ghost" onClick={() => setSelectedMuscle(null)}>{t('Clear selection')}</Button>}
+          <Button size="sm" variant="ghost" trailingIcon={mapOpen ? 'chevronUp' : 'chevronDown'} onClick={() => setMapOpen(v => !v)}>
+            {mapOpen ? t('Hide map') : t('Show map')}
+          </Button>
+        </div>
+      </div>
+
+      {mapOpen && <>
+        <BodyMap className="tappable" body={S.body} selected={selectedMuscle} onMuscle={pickMuscle} />
+        <div className="row" style={{ gap: 6, marginTop: 10, overflowX: 'auto', paddingBottom: 4 }}>
+          {MUSCLES.map(m => {
+            const on = selectedMuscle === m
+            const cnt = tier === 'essential' ? muscleCounts[m]?.essential : muscleCounts[m]?.primary
+            return (
+              <button
+                key={m}
+                type="button"
+                className={'muscle-pill' + (on ? ' on' : '')}
+                aria-pressed={on}
+                onClick={() => pickMuscle(m)}
+                style={{
+                  whiteSpace: 'nowrap',
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                  fontSize: 'var(--fs-caption)',
+                  fontWeight: 600,
+                  border: '1px solid ' + (on ? 'var(--acc)' : 'var(--sep)'),
+                  background: on ? 'var(--acc)' : 'var(--surface-2)',
+                  color: on ? 'var(--on-acc)' : 'var(--label)',
+                  cursor: 'pointer',
+                }}
+              >
+                {t(MUSCLE_NAME[m])} <span style={{ opacity: on ? 0.9 : 0.6 }}>{cnt}</span>
+              </button>
+            )
+          })}
+        </div>
+      </>}
+    </div>
+
+    {selectedMuscle && <MuscleComboCard muscle={selectedMuscle} onDetail={exerciseDetailSheet} />}
+
+    {/* Beginner Curation & Setup Filter Bar */}
+    <div className="lib-guide-bar" style={{ marginBottom: 10 }}>
+      <Segmented
+        className="seg-range"
+        value={tier}
+        onChange={v => { setTier(v); setShown(40) }}
+        options={[
+          { value: 'all', label: t('All exercises') },
+          { value: 'essential', label: '⭐ ' + t('Beginner essentials') },
+          { value: 'compound', label: '🎯 ' + t('Compound lifts') },
+        ]}
+      />
+      <div className="row" style={{ gap: 6, marginTop: 8, overflowX: 'auto', paddingBottom: 2 }}>
+        {QUICK_SCENES.map(sc => (
+          <button
+            key={sc.id}
+            type="button"
+            className={'scene-pill' + (scene === sc.id ? ' on' : '')}
+            aria-pressed={scene === sc.id}
+            onClick={() => { setScene(sc.id); setShown(40) }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              whiteSpace: 'nowrap',
+              padding: '5px 10px',
+              borderRadius: 999,
+              fontSize: 'var(--fs-caption)',
+              fontWeight: 600,
+              border: '1px solid ' + (scene === sc.id ? 'var(--acc)' : 'var(--sep)'),
+              background: scene === sc.id ? 'var(--acc)' : 'var(--surface-2)',
+              color: scene === sc.id ? 'var(--on-acc)' : 'var(--label)',
+              cursor: 'pointer',
+            }}
+          >
+            <Icon name={sc.icon} size={14} />
+            <span>{t(sc.labelKey)}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+
     <div className="search-row" data-tour="lib-search" style={{ marginBottom: 10 }}><div className={'search' + (narrowed ? ' has-count' : '') + (q ? ' has-clear' : '')}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
       <input className="input" placeholder={t('Search…')} value={q} onChange={e => { setQ(e.target.value); setShown(40) }} />
       {narrowed && <span className="search-count" role="status" aria-label={exCount(f.length)}>{fmtNum(f.length)}</span>}
@@ -100,13 +268,6 @@ export default function Library() {
         {showAll ? t('Filter by "{0}"', profile.name) : t('Show all equipment')}
       </button>
     </div>}
-    {/* One row of filters (redesign 1.4.5, P7), where there were three: Filters opens the sheet with
-        the kind of exercise and the equipment, any choice made there sits beside it as a chip you
-        can clear, then the body parts. Nothing is filled while nothing is chosen, and a chosen chip
-        is a neutral fill, not the accent. Tapping the chosen body part again shows them all (the
-        old "All" chip). Changing body part keeps the equipment filter (issue #71): the eqOn
-        fallback above drops it only for the current view if the new body part has nothing under
-        it, without forgetting the choice. */}
     <div className="chips lib-filters" data-tour="lib-filters" ref={bpStrip}>
       <button type="button" className={'chip nocap ichip lib-fbtn' + (sheetOn ? ' on' : '')} aria-haspopup="dialog" onClick={openFilters}>
         <Icon name="slider" />{t('Filters')}{sheetOn ? <span className="lib-fn">{sheetOn}</span> : null}

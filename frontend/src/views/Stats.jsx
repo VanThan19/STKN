@@ -45,6 +45,7 @@ import { tappable } from '../lib/use-sheet-keyboard.js'
 import { isWarmupRow } from '../lib/workout-model.js'
 import { exView, exUnitOf, shownWeight } from '../lib/ex-unit.js'
 import { isOn } from '../lib/modules.js'
+import { weeklyNutritionSummary, calculateMacroTargets, computeDayTotals, DEFAULT_NUTRITION_PROFILE } from '../lib/nutrition.js'
 
 // Set 1 to 5 on the per-set chart — system colours, so each line keeps its hue in dark mode.
 const SET_COLORS = ['var(--blue)', 'var(--green)', 'var(--orange)', 'var(--purple)', 'var(--pink)']
@@ -489,6 +490,144 @@ export function ExerciseTimeCard({ S }) {
   </div>
 }
 
+export function NutritionStatsCard({ S }) {
+  const nav = useNavigate()
+  const [win, setWin] = useState(7)
+  const [basis, setBasis] = useState('today')
+  const nut = S?.nutrition || {}
+  const profile = { ...DEFAULT_NUTRITION_PROFILE, ...(nut.profile || {}) }
+  const customFoods = nut.customFoods || []
+  const logs = nut.logs || {}
+  const today = todayISO()
+
+  const bwEntries = S?.bodyweight || []
+  const latestBw = bwEntries.length ? bwEntries[bwEntries.length - 1]?.w : null
+  const weightKg = latestBw
+    ? (S?.unit === 'lb' ? latestBw * 0.45359237 : latestBw)
+    : profile.weightKg
+
+  const targets = useMemo(
+    () => calculateMacroTargets({ ...profile, weightKg }),
+    [profile.sex, profile.age, profile.heightCm, profile.activityLevel, profile.goal, profile.customTargets, profile.targetCalories, profile.targetProtein, profile.targetCarbs, profile.targetFat, weightKg],
+  )
+  const todayTotals = useMemo(() => computeDayTotals(logs[today], customFoods), [logs, today, customFoods])
+  const summary = useMemo(() => weeklyNutritionSummary(logs, customFoods, today, win), [logs, customFoods, today, win])
+
+  const chartPts = useMemo(
+    () => summary.series
+      .filter(pt => pt.kcal > 0)
+      .map(pt => ({
+        t: Date.parse(pt.d + 'T12:00:00Z'),
+        y: pt.kcal,
+        d: pt.d,
+        note: `${pt.protein}g P · ${pt.carbs}g C · ${pt.fat}g F`,
+      })),
+    [summary.series],
+  )
+
+  const cur = basis === 'avg' && summary.loggedDays > 0
+    ? { kcal: summary.avgKcal, protein: summary.avgProtein, carbs: summary.avgCarbs, fat: summary.avgFat, waterMl: summary.avgWaterMl }
+    : { kcal: todayTotals.kcal, protein: todayTotals.protein, carbs: todayTotals.carbs, fat: todayTotals.fat, waterMl: todayTotals.waterMl }
+
+  const toneOf = (val, target) => {
+    if (!target || val <= 0) return 'neutral'
+    const ratio = val / target
+    return ratio < 0.8 ? 'below' : ratio <= 1.15 ? 'in' : 'above'
+  }
+
+  const macroRows = [
+    { key: 'kcal', label: t('Calories'), val: cur.kcal, target: targets.kcal, unit: 'kcal' },
+    { key: 'protein', label: t('Protein'), val: cur.protein, target: targets.protein, unit: 'g' },
+    { key: 'carbs', label: t('Carbs'), val: cur.carbs, target: targets.carbs, unit: 'g' },
+    { key: 'fat', label: t('Fat'), val: cur.fat, target: targets.fat, unit: 'g' },
+    { key: 'water', label: t('Hydration'), val: cur.waterMl, target: 2500, unit: 'ml' },
+  ]
+
+  const recentDays = useMemo(
+    () => [...summary.series].reverse().filter(d => d.kcal > 0 || d.waterMl > 0).slice(0, 7),
+    [summary.series],
+  )
+
+  return <div className="card" data-nutrition-stats>
+    <div className="row between" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+      <div>
+        <h2 style={{ margin: 0 }}>{t('Nutrition progress')}</h2>
+        <div className="small dim">{t('Calorie & macro adherence against your daily target.')}</div>
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <Button size="sm" icon="sparkle" variant="ghost" onClick={() => nav('/coach')}>{t('Ask AI Coach')}</Button>
+        <Button size="sm" icon="plus" onClick={() => nav('/nutrition')}>{t('Open Nutrition')}</Button>
+      </div>
+    </div>
+
+    <Segmented className="seg-range" value={win} onChange={setWin}
+      options={[{ value: 7, label: '7d' }, { value: 14, label: '14d' }, { value: 30, label: '30d' }]} />
+
+    <div className="kpis" style={{ marginTop: 10, marginBottom: 12 }}>
+      <div className="tile">
+        <div className="l">{t('Today kcal')}</div>
+        <div className="v">{fmtNum(todayTotals.kcal)} <span className="small dim">/ {fmtNum(targets.kcal)}</span></div>
+      </div>
+      <div className="tile">
+        <div className="l">{t('Avg kcal / day')}</div>
+        <div className="v">{summary.loggedDays ? fmtNum(summary.avgKcal) : '–'} <span className="small dim">kcal</span></div>
+      </div>
+      <div className="tile">
+        <div className="l">{t('Avg protein')}</div>
+        <div className="v">{summary.loggedDays ? fmtNum(summary.avgProtein) + 'g' : '–'} <span className="small dim">/ {targets.protein}g</span></div>
+      </div>
+      <div className="tile">
+        <div className="l">{t('Logged days')}</div>
+        <div className="v">{summary.loggedDays} <span className="small dim">/ {win}</span></div>
+      </div>
+    </div>
+
+    {chartPts.length >= 2 && <>
+      <h4 className="sec">{t('Daily calorie trend')}</h4>
+      <div className="chart">
+        <LineChart points={chartPts} h={145} unit="kcal" goal={targets.kcal} color="var(--green)" />
+      </div>
+    </>}
+
+    <div className="row between" style={{ marginTop: 10, marginBottom: 6 }}>
+      <h4 className="sec" style={{ margin: 0 }}>
+        {basis === 'avg' ? t('Macro adherence (average vs target)') : t('Macro adherence (today vs target)')}
+      </h4>
+      <Segmented className="seg-inline" value={basis} onChange={setBasis}
+        options={[{ value: 'today', label: t('Today') }, { value: 'avg', label: t('Daily average') }]} />
+    </div>
+
+    <div className="sbar-list">
+      {macroRows.map(r => (
+        <BarRow
+          key={r.key}
+          label={r.label}
+          tone={toneOf(r.val, r.target)}
+          fill={Math.min(1, r.target > 0 ? r.val / r.target : 0)}
+          value={<><b>{fmtNum(r.val)}</b><span className="sbar-of"> / {fmtNum(r.target)} {r.unit}</span></>}
+        />
+      ))}
+    </div>
+
+    {recentDays.length > 0 ? <>
+      <h4 className="sec" style={{ marginTop: 14 }}>{t('Recent nutrition logs')}</h4>
+      <div className="ex-days" data-nutrition-days>
+        {recentDays.map(d => (
+          <div key={d.d} className="ex-day" {...tappable(() => nav('/nutrition'))}>
+            <span className="ex-day-d">{fmtDate(d.d, true)}</span>
+            <span className="ex-day-s"><b>{fmtNum(d.kcal)} kcal</b> · {fmtNum(d.protein)}g P · {fmtNum(d.carbs)}g C · {fmtNum(d.fat)}g F</span>
+            <span className="ex-day-e">{d.waterMl > 0 && <span className="ex-eff">{d.waterMl} ml</span>}</span>
+          </div>
+        ))}
+      </div>
+    </> : (
+      <div className="muted small" style={{ marginTop: 10 }}>
+        {t('No nutrition logs in this period yet. Log your meals or apply an AI meal plan to track your macros here.')}
+      </div>
+    )}
+  </div>
+}
+
 // The sticky index over Stats (redesign 1.4.5, P5): Overview, Body, Lifts and, when there is any,
 // Effort. A tap scrolls to that part and puts it in the address (#/stats?section=lifts, so the
 // part can be linked and comes back on reload); scrolling moves the highlight along. The address
@@ -843,11 +982,13 @@ export default function Stats() {
   const timeCard = workouts.some(w => entryTimes(w).length)
   // With Effort off the time per exercise moves to the end of Lifts, so no part is a lone card.
   const hasEffortSect = effortCard || (effortOn && timeCard)
+  const hasNutritionSect = Boolean(S?.nutrition)
   const sections = [
     { value: 'overview', label: t('Overview') },
     ...(bodyOn ? [{ value: 'body', label: t('Body') }] : []),
     { value: 'lifts', label: t('Lifts') },
     ...(hasEffortSect ? [{ value: 'effort', label: t('Effort') }] : []),
+    ...(hasNutritionSect ? [{ value: 'nutrition', label: t('Nutrition') }] : []),
   ]
   const recent = [...workouts].reverse().slice(0, RECENT_ROWS)
   const wrapped = motivationOn ? wrappedYears(S).slice(0, 4) : []
@@ -1023,6 +1164,11 @@ export default function Stats() {
       <h2 className="stats-sect-h" id="stats-h-effort">{t('Effort')}</h2>
     {effortCard && <EffortCard S={S} />}
     {timeCard && <ExerciseTimeCard S={S} />}
+    </section>}
+
+    {hasNutritionSect && <section className="stats-sect" id="stats-nutrition" data-stats-sect="nutrition" aria-labelledby="stats-h-nutrition">
+      <h2 className="stats-sect-h" id="stats-h-nutrition">{t('Nutrition')}</h2>
+      <NutritionStatsCard S={S} />
     </section>}
   </>
 }

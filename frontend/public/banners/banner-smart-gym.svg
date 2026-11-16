@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 280" width="280" height="280" fill="none">
+  <defs>
+    <linearGradient id="sg_bg" x1="0" y1="0" x2="280" y2="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2c1506"/>
+      <stop offset="55%" stop-color="#1a1310"/>
+      <stop offset="100%" stop-color="#0d0a09"/>
+    </linearGradient>
+    <radialGradient id="sg_glow" cx="50%" cy="46%" r="52%">
+      <stop offset="0%" stop-color="#ff9f0a" stop-opacity="0.42"/>
+      <stop offset="65%" stop-color="#ff453a" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#0d0a09" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sg_accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="280" height="280" rx="28" fill="url(#sg_bg)"/>
+  <circle cx="140" cy="130" r="124" fill="url(#sg_glow)"/>
+
+  <!-- Top Badge -->
+  <g transform="translate(16 14)">
+    <rect width="126" height="24" rx="12" fill="#2b1708" stroke="#fb923c" stroke-opacity="0.6"/>
+    <circle cx="13" cy="12" r="4.5" fill="#fb923c"/>
+    <text x="24" y="16" font-family="system-ui,sans-serif" font-size="10" font-weight="800" fill="#fed7aa" letter-spacing="0.5">5,600+ HD GUIDE</text>
+  </g>
+
+  <!-- Stylized Anatomical Silhouette + Activated Muscle Highlight -->
+  <g transform="translate(140 120)">
+    <!-- Head & Neck -->
+    <circle cx="0" cy="-58" r="14" fill="#3b2c25"/>
+    <rect x="-8" y="-44" width="16" height="12" rx="4" fill="#3b2c25"/>
+    <!-- Shoulders -->
+    <ellipse cx="-38" cy="-22" rx="16" ry="11" fill="url(#sg_accent)"/>
+    <ellipse cx="38" cy="-22" rx="16" ry="11" fill="url(#sg_accent)"/>
+    <!-- Chest Pecs -->
+    <path d="M-28 -30 H-4 L-3 -4 C-16 -2 -26 -8 -30 -18 Z" fill="url(#sg_accent)" opacity="0.92"/>
+    <path d="M28 -30 H4 L3 -4 C16 -2 26 -8 30 -18 Z" fill="url(#sg_accent)" opacity="0.92"/>
+    <!-- Arms -->
+    <rect x="-54" y="-12" width="15" height="44" rx="7.5" fill="#fb923c" opacity="0.72"/>
+    <rect x="39" y="-12" width="15" height="44" rx="7.5" fill="#fb923c" opacity="0.72"/>
+    <!-- Core / Abs -->
+    <rect x="-18" y="2" width="16" height="12" rx="3" fill="#4b382f"/>
+    <rect x="2" y="2" width="16" height="12" rx="3" fill="#4b382f"/>
+    <rect x="-18" y="17" width="16" height="12" rx="3" fill="#4b382f"/>
+    <rect x="2" y="17" width="16" height="12" rx="3" fill="#4b382f"/>
+    <rect x="-16" y="32" width="14" height="12" rx="3" fill="#4b382f"/>
+    <rect x="2" y="32" width="14" height="12" rx="3" fill="#4b382f"/>
+  </g>
+
+  <!-- Barbell Graphic Across Bottom-Center -->
+  <g transform="translate(36 184)">
+    <rect x="24" y="11" width="160" height="6" rx="3" fill="#d4d4d8"/>
+    <rect x="14" y="2" width="10" height="24" rx="3" fill="#f97316"/>
+    <rect x="2" y="6" width="9" height="16" rx="2.5" fill="#fbbf24"/>
+    <rect x="184" y="2" width="10" height="24" rx="3" fill="#f97316"/>
+    <rect x="197" y="6" width="9" height="16" rx="2.5" fill="#fbbf24"/>
+  </g>
+
+  <!-- Bottom Feature Pills -->
+  <g transform="translate(16 226)">
+    <rect width="118" height="36" rx="10" fill="#1c1410" stroke="#f97316" stroke-opacity="0.5"/>
+    <text x="59" y="16" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.5" font-weight="800" fill="#fbbf24">🟢 Người mới</text>
+    <text x="59" y="29" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="600" fill="#fed7aa">Combo 18 Nhóm cơ</text>
+
+    <rect x="128" width="120" height="36" rx="10" fill="#1c1410" stroke="#f97316" stroke-opacity="0.5"/>
+    <text x="188" y="16" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11.5" font-weight="800" fill="#fb923c">100% KỸ THUẬT</text>
+    <text x="188" y="29" text-anchor="middle" font-family="system-ui,sans-serif" font-size="9" font-weight="600" fill="#fed7aa">Video minh họa từng bước</text>
+  </g>
+</svg>
